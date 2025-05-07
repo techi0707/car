@@ -1,0 +1,4 @@
+ultralytics
+PySide6
+opencv-python-headless
+numpy
