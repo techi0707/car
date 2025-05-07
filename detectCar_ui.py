@@ -3,7 +3,9 @@ from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, Q
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtWidgets import QFrame
-
+from PySide6.QtWidgets import QSizePolicy
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QMainWindow
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -13,11 +15,12 @@ class DetectionApp(QWidget):
         super().__init__()
 
         # 初始化YOLO模型
-        self.model = YOLO('yolov8n.pt')  # 假设你使用YOLOv8模型，可以根据需要修改
+        self.model = YOLO('car.pt')  # 假设你使用YOLOv8模型，可以根据需要修改
 
-        self.setWindowTitle("车辆")
-        self.setGeometry(100, 100, 1000, 600)
-
+        self.setWindowTitle("车辆损伤识别系统")
+        # self.setGeometry(100, 100, 1000, 600)
+        # 设置窗口最小尺寸
+        self.setMinimumSize(1000, 600)
         # 创建UI
         self.init_ui()
 
@@ -105,6 +108,15 @@ class DetectionApp(QWidget):
         
         self.image_path = None
 
+    
+        # 修改图片显示区域的布局和大小策略
+        self.original_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.original_label.setMinimumSize(400, 400)
+        self.result_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.result_label.setMinimumSize(400, 400)
+        
+        # 添加事件过滤器来处理窗口大小改变
+        self.installEventFilter(self)
     def select_image(self):
         # 选择文件对话框
         options = QFileDialog.Options()
@@ -113,18 +125,18 @@ class DetectionApp(QWidget):
             self.image_path = file_path
             self.display_image(self.image_path)
 
-    def display_image(self, path):
-        # 显示原始图片
-        pixmap = QPixmap(path)
-        # 计算保持宽高比的缩放大小
-        scaled_size = pixmap.size()
-        scaled_size.scale(800, 800, Qt.KeepAspectRatio)
-        self.original_label.setPixmap(pixmap.scaled(
-            scaled_size.width(), 
-            scaled_size.height(), 
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation  # 使用平滑转换提高质量
-        ))
+    # def display_image(self, path):
+    #     # 显示原始图片
+    #     pixmap = QPixmap(path)
+    #     # 计算保持宽高比的缩放大小
+    #     scaled_size = pixmap.size()
+    #     scaled_size.scale(800, 800, Qt.KeepAspectRatio)
+    #     self.original_label.setPixmap(pixmap.scaled(
+    #         scaled_size.width(), 
+    #         scaled_size.height(), 
+    #         Qt.KeepAspectRatio,
+    #         Qt.SmoothTransformation  # 使用平滑转换提高质量
+    #     ))
 
     def start_detection(self):
         if not self.image_path:
@@ -144,17 +156,39 @@ class DetectionApp(QWidget):
         # 绘制检测框
         image_with_boxes = image.copy()
         for box in boxes:
-            # box.data 包含 [x1, y1, x2, y2, confidence, class]
             conf = float(box[4])
-            cls = int(box[5])  # 获取类别索引
+            cls = int(box[5])
             if conf >= confidence:
                 x1, y1, x2, y2 = map(int, box[:4])
-                cv2.rectangle(image_with_boxes, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                # 在框上方显示类别和置信度
-                class_name = result.names[cls]  # 获取类别名称
+                # 使用更粗的线条绘制边界框
+                cv2.rectangle(image_with_boxes, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                
+                # 改善文字显示
+                class_name = result.names[cls]
                 label = f'{class_name} {conf:.2f}'
-                cv2.putText(image_with_boxes, label, (x1, y1-10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                
+                # 获取文字大小
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 1.0  # 增大字体大小
+                thickness = 2     # 增加字体粗细
+                (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
+                
+                # 绘制文字背景框
+                cv2.rectangle(image_with_boxes, 
+                            (x1, y1 - text_height - 10), 
+                            (x1 + text_width, y1), 
+                            (0, 255, 0), 
+                            -1)  # -1表示填充矩形
+                
+                # 绘制文字（使用黑色以提高对比度）
+                cv2.putText(image_with_boxes, 
+                        label, 
+                        (x1, y1 - 5),  # 稍微调整位置
+                        font,
+                        font_scale,
+                        (0, 0, 0),     # 黑色文字
+                        thickness,
+                        cv2.LINE_AA)   # 使用抗锯齿
 
         # 显示检测结果
         self.display_result(image_with_boxes)
@@ -169,24 +203,63 @@ class DetectionApp(QWidget):
         return image
 
 
+    # def display_result(self, image):
+    #     # 将检测结果转化为QPixmap显示
+    #     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    #     h, w, ch = image_rgb.shape
+    #     bytes_per_line = ch * w
+    #     # 创建QImage对象
+    #     qimg = QImage(image_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+    #     pixmap = QPixmap.fromImage(qimg)
+        
+    #     # 计算保持宽高比的缩放大小
+    #     scaled_size = pixmap.size()
+    #     scaled_size.scale(800, 800, Qt.KeepAspectRatio)
+    #     self.result_label.setPixmap(pixmap.scaled(
+    #         scaled_size.width(), 
+    #         scaled_size.height(), 
+    #         Qt.KeepAspectRatio,
+    #         Qt.SmoothTransformation  # 使用平滑转换提高质量
+    #     ))
+
+    def eventFilter(self, obj, event):
+        if obj is self and event.type() == QEvent.Resize:
+            self.updateImageDisplay()
+        return super().eventFilter(obj, event)
+
+    def updateImageDisplay(self):
+        if hasattr(self, '_current_original_pixmap'):
+            self.displayScaledPixmap(self.original_label, self._current_original_pixmap)
+        if hasattr(self, '_current_result_pixmap'):
+            self.displayScaledPixmap(self.result_label, self._current_result_pixmap)
+
+    def displayScaledPixmap(self, label, pixmap):
+        # 获取标签的大小
+        label_size = label.size()
+        # 保持宽高比缩放图片
+        scaled_pixmap = pixmap.scaled(
+            label_size.width(), 
+            label_size.height(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        label.setPixmap(scaled_pixmap)
+
+    def display_image(self, path):
+        pixmap = QPixmap(path)
+        self._current_original_pixmap = pixmap
+        self.displayScaledPixmap(self.original_label, pixmap)
+
     def display_result(self, image):
         # 将检测结果转化为QPixmap显示
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         h, w, ch = image_rgb.shape
         bytes_per_line = ch * w
-        # 创建QImage对象
         qimg = QImage(image_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimg)
-        
-        # 计算保持宽高比的缩放大小
-        scaled_size = pixmap.size()
-        scaled_size.scale(800, 800, Qt.KeepAspectRatio)
-        self.result_label.setPixmap(pixmap.scaled(
-            scaled_size.width(), 
-            scaled_size.height(), 
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation  # 使用平滑转换提高质量
-        ))
+        self._current_result_pixmap = pixmap
+        self.displayScaledPixmap(self.result_label, pixmap)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
